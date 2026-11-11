@@ -2,3 +2,4 @@ streamlit==1.66.1
 ultralytics==8.4.190
 opencv-python-headless
 pillow
+paho-mqtt

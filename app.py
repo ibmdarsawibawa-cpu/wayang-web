@@ -1,6 +1,10 @@
+import hashlib
 import io
+import json
+import time
 from collections import Counter
 
+import paho.mqtt.publish as publish
 import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from ultralytics import YOLO
@@ -10,6 +14,10 @@ SISI_MAKS = 1024        # foto diperkecil dulu agar cepat & hemat RAM
 UKURAN_MODEL = 640
 CONF_DETEKSI = 0.05     # model dijalankan dengan ambang rendah; penyaringan dilakukan saat menampilkan
 WARNA = ['#00C2FF', '#FF2D55', '#C8D400', '#FF9500', '#8E5CF7']
+
+# Pengiriman hasil ke ESP32 (harus SAMA PERSIS dengan TOPIC di kode ESP32)
+MQTT_HOST = 'broker.hivemq.com'
+MQTT_TOPIC = 'deteksi-ukiran-wayang-kulit-bali-x7k2/hasil'
 
 st.set_page_config(page_title='Deteksi Motif Ukiran Wayang Kulit Bali', layout='wide')
 st.title('Deteksi Motif Ukiran Wayang Kulit Bali')
@@ -67,6 +75,16 @@ def gambar_kotak(gambar, daftar):
     return img
 
 
+def kirim_ke_alat(daftar_kelas):
+    """Kirim nomor kelas yang terdeteksi ke ESP32 lewat broker MQTT."""
+    try:
+        pesan = json.dumps({'id': int(time.time()), 'kelas': daftar_kelas})
+        publish.single(MQTT_TOPIC, pesan, hostname=MQTT_HOST, port=1883, keepalive=10)
+        return True
+    except Exception:
+        return False
+
+
 def tampilkan_hasil(nama, data, min_conf, tampil):
     with st.expander(nama, expanded=True):
         with st.spinner('Mendeteksi...'):
@@ -86,6 +104,22 @@ def tampilkan_hasil(nama, data, min_conf, tampil):
             st.write('**Motif terdeteksi:** ' +
                      ', '.join(f'{n} ({j})' for n, j in sorted(jumlah.items(), key=lambda x: -x[1])))
 
+        # --- kirim hasil ke ESP32 (speaker) ---
+        daftar_kelas = sorted({NAMA_KELAS.index(d[0]) for d in terpilih})
+        tanda = hashlib.md5(data).hexdigest() + str(daftar_kelas)
+        terkirim = st.session_state.setdefault('terkirim', set())
+        if kirim_otomatis and tanda not in terkirim:
+            if kirim_ke_alat(daftar_kelas):
+                terkirim.add(tanda)
+                st.success('Hasil dikirim ke speaker.')
+            else:
+                st.error('Gagal mengirim ke alat (cek internet / broker).')
+        if st.button('🔊 Bunyikan lagi di alat', key='btn_' + tanda):
+            if kirim_ke_alat(daftar_kelas):
+                st.success('Dikirim ulang ke speaker.')
+            else:
+                st.error('Gagal mengirim ke alat.')
+
 
 min_conf = st.sidebar.slider(
     'Batas keyakinan yang ditampilkan', 0.05, 0.95, 0.20, 0.05,
@@ -97,6 +131,7 @@ tampil = st.sidebar.multiselect(
     default=NAMA_KELAS,
     help='Pilih satu atau lebih motif. Kotak motif lain disembunyikan.',
 )
+kirim_otomatis = st.sidebar.checkbox('Kirim hasil ke speaker (ESP32)', value=True)
 if not tampil:
     st.info('Pilih minimal satu motif di menu "Tampilkan motif" (sidebar kiri).')
 
