@@ -9,7 +9,6 @@ import streamlit as st
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from ultralytics import YOLO
 
-MAKS_FOTO = 5
 SISI_MAKS = 1024        # foto diperkecil dulu agar cepat & hemat RAM
 UKURAN_MODEL = 640
 CONF_DETEKSI = 0.05     # model dijalankan dengan ambang rendah; penyaringan dilakukan saat menampilkan
@@ -139,17 +138,13 @@ if not tampil:
 sumber = st.radio('Sumber gambar', ['Unggah foto', 'Kamera webcam'], horizontal=True)
 
 if sumber == 'Unggah foto':
-    files = st.file_uploader(
-        f'Unggah gambar (JPG/PNG), maksimal {MAKS_FOTO} foto',
+    f = st.file_uploader(
+        'Unggah satu gambar (JPG/PNG)',
         type=['jpg', 'jpeg', 'png'],
-        accept_multiple_files=True,
+        accept_multiple_files=False,
     )
-    if files:
-        if len(files) > MAKS_FOTO:
-            st.warning(f'Maksimal {MAKS_FOTO} foto. Hanya {MAKS_FOTO} foto pertama yang diproses.')
-            files = files[:MAKS_FOTO]
-        for f in files:
-            tampilkan_hasil(f.name, f.getvalue(), min_conf, tampil)
+    if f is not None:
+        tampilkan_hasil(f.name, f.getvalue(), min_conf, tampil)
 else:
     foto = st.camera_input('Arahkan wayang ke kamera, lalu klik "Take Photo"')
     if foto is not None:
