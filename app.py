@@ -6,6 +6,7 @@ from collections import Counter
 
 import paho.mqtt.publish as publish
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from ultralytics import YOLO
 
@@ -17,10 +18,31 @@ WARNA = ['#00C2FF', '#FF2D55', '#C8D400', '#FF9500', '#8E5CF7']
 # Pengiriman hasil ke ESP32 (harus SAMA PERSIS dengan TOPIC di kode ESP32)
 MQTT_HOST = 'broker.hivemq.com'
 MQTT_TOPIC = 'deteksi-ukiran-wayang-kulit-bali-x7k2/hasil'
+MQTT_WS = 'wss://broker.hivemq.com:8884/mqtt'
+TOPIK_KONTROL = 'deteksi-ukiran-wayang-kulit-bali-x7k2/kontrol'
+
+
+def dengarkan_tombol():
+    """Dengarkan tombol di alat (lewat MQTT) dan jalankan aksinya di halaman."""
+    components.html(f"""
+    <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+    <script>
+      const client = mqtt.connect('{MQTT_WS}');
+      client.on('connect', () => client.subscribe('{TOPIK_KONTROL}'));
+      client.on('message', (topic, msg) => {{
+        const aksi = msg.toString();
+        if (aksi === 'reset') {{
+          try {{ window.parent.location.reload(); }}
+          catch (e) {{ window.top.location.reload(); }}
+        }}
+      }});
+    </script>
+    """, height=0)
 
 st.set_page_config(page_title='Deteksi Motif Ukiran Wayang Kulit Bali', layout='wide')
 st.title('Deteksi Motif Ukiran Wayang Kulit Bali')
 st.caption('Unggah foto atau ambil gambar dari kamera untuk mendeteksi motif ukiran wayang kulit.')
+dengarkan_tombol()
 
 
 @st.cache_resource
