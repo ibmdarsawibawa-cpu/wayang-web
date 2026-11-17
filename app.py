@@ -18,26 +18,125 @@ WARNA = ['#00C2FF', '#FF2D55', '#C8D400', '#FF9500', '#8E5CF7']
 # Pengiriman hasil ke ESP32 (harus SAMA PERSIS dengan TOPIC di kode ESP32)
 MQTT_HOST = 'broker.hivemq.com'
 MQTT_TOPIC = 'deteksi-ukiran-wayang-kulit-bali-x7k2/hasil'
+
+# Tombol di alat (harus SAMA PERSIS dengan TOPIC_KONTROL di kode ESP32)
 MQTT_WS = 'wss://broker.hivemq.com:8884/mqtt'
 TOPIK_KONTROL = 'deteksi-ukiran-wayang-kulit-bali-x7k2/kontrol'
+DETIK_HITUNG = 3        # hitung mundur sebelum foto diambil (isi 3 sampai 5)
+
+# JavaScript yang berjalan di browser: mendengarkan tombol di alat
+JS_TOMBOL = """
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script>
+const DETIK = __DETIK__;
+const pdoc = () => window.parent.document;
+const tunggu = (ms) => new Promise((r) => setTimeout(r, ms));
+let sibuk = false;
+
+function cariTombol(teks) {
+  const semua = pdoc().querySelectorAll('button');
+  for (const b of semua) {
+    if ((b.textContent || '').toLowerCase().includes(teks)) return b;
+  }
+  return null;
+}
+const tombolAmbil = () => cariTombol('take photo');
+const tombolHapus = () => cariTombol('clear photo');
+
+function bunyi(frek, ms) {
+  try {
+    const a = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = a.createOscillator();
+    osc.frequency.value = frek;
+    osc.connect(a.destination);
+    osc.start();
+    setTimeout(() => { osc.stop(); a.close(); }, ms);
+  } catch (e) {}
+}
+
+function buatOverlay() {
+  let o = pdoc().getElementById('hitung-mundur');
+  if (!o) {
+    o = pdoc().createElement('div');
+    o.id = 'hitung-mundur';
+    o.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:999999;' +
+      'display:flex;align-items:center;justify-content:center;' +
+      'background:rgba(0,0,0,0.45);color:#fff;font-size:40vh;font-weight:700;' +
+      'font-family:sans-serif;pointer-events:none;';
+    pdoc().body.appendChild(o);
+  }
+  return o;
+}
+
+// pastikan mode "Kamera webcam" aktif (pindahkan otomatis kalau belum)
+async function pastikanKamera() {
+  if (tombolAmbil() || tombolHapus()) return true;
+  const labels = pdoc().querySelectorAll('label');
+  for (const l of labels) {
+    if ((l.textContent || '').includes('Kamera webcam')) { l.click(); break; }
+  }
+  for (let i = 0; i < 40; i++) {
+    await tunggu(200);
+    if (tombolAmbil() || tombolHapus()) return true;
+  }
+  return false;
+}
+
+async function ambilFoto() {
+  if (sibuk) return;
+  sibuk = true;
+  try {
+    if (!(await pastikanKamera())) {
+      console.log('foto: kamera tidak ditemukan');
+      return;
+    }
+    const hapus = tombolHapus();
+    if (hapus) { hapus.click(); await tunggu(1500); }   // siapkan kamera lagi
+    const o = buatOverlay();
+    for (let n = DETIK; n > 0; n--) {
+      o.textContent = n;
+      bunyi(660, 150);
+      await tunggu(1000);
+    }
+    o.textContent = '\\u{1F4F8}';
+    bunyi(990, 300);
+    const ambil = tombolAmbil();
+    if (ambil) { ambil.click(); }
+    else { console.log('foto: tombol Take Photo tidak ditemukan'); }
+    await tunggu(700);
+    o.remove();
+  } finally {
+    sibuk = false;
+  }
+}
+
+const client = mqtt.connect('__WS__');
+client.on('connect', () => {
+  console.log('MQTT terhubung');
+  client.subscribe('__TOPIK__');
+});
+client.on('message', (topic, msg) => {
+  const aksi = msg.toString();
+  console.log('pesan tombol:', aksi);
+  if (aksi === 'reset') {
+    try { window.parent.location.reload(); }
+    catch (e) { window.top.location.reload(); }
+  } else if (aksi === 'foto') {
+    ambilFoto();
+  }
+});
+</script>
+"""
 
 
 def dengarkan_tombol():
     """Dengarkan tombol di alat (lewat MQTT) dan jalankan aksinya di halaman."""
-    components.html(f"""
-    <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
-    <script>
-      const client = mqtt.connect('{MQTT_WS}');
-      client.on('connect', () => client.subscribe('{TOPIK_KONTROL}'));
-      client.on('message', (topic, msg) => {{
-        const aksi = msg.toString();
-        if (aksi === 'reset') {{
-          try {{ window.parent.location.reload(); }}
-          catch (e) {{ window.top.location.reload(); }}
-        }}
-      }});
-    </script>
-    """, height=0)
+    html = (JS_TOMBOL
+            .replace('__WS__', MQTT_WS)
+            .replace('__TOPIK__', TOPIK_KONTROL)
+            .replace('__DETIK__', str(DETIK_HITUNG)))
+    components.html(html, height=0)
+
 
 st.set_page_config(page_title='Deteksi Motif Ukiran Wayang Kulit Bali', layout='wide')
 st.title('Deteksi Motif Ukiran Wayang Kulit Bali')
@@ -157,7 +256,8 @@ if not tampil:
     st.info('Pilih minimal satu motif di menu "Tampilkan motif" (sidebar kiri).')
 
 # radio dipakai (bukan tab) supaya kamera hanya aktif kalau dipilih
-sumber = st.radio('Sumber gambar', ['Unggah foto', 'Kamera webcam'], horizontal=True)
+# index=1 -> mode kamera aktif sejak awal, supaya tombol Foto di alat langsung bisa dipakai
+sumber = st.radio('Sumber gambar', ['Unggah foto', 'Kamera webcam'], index=1, horizontal=True)
 
 if sumber == 'Unggah foto':
     f = st.file_uploader(
