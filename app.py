@@ -225,27 +225,30 @@ def tampilkan_hasil(nama, data, min_conf, tampil):
         terpilih = [d for d in semua if d[0] in tampil and d[1] >= min_conf]
         jumlah = Counter(d[0] for d in terpilih)
 
+        # satu urutan untuk teks di web DAN suara di speaker:
+        # jumlah kotak terbanyak dulu, kalau sama sesuai nomor kelas
+        urutan = sorted(jumlah.items(), key=lambda x: (-x[1], NAMA_KELAS.index(x[0])))
+
         k1, k2 = st.columns(2)
         k1.image(asli, caption='Foto asli', use_container_width=True)
         k2.image(gambar_kotak(asli, terpilih), caption='Hasil deteksi', use_container_width=True)
 
-        if not jumlah:
+        if not urutan:
             st.warning('Tidak ada motif terdeteksi. Coba turunkan batas keyakinan '
                        'atau periksa menu "Tampilkan motif".')
         else:
-            st.write('**Motif terdeteksi:** ' +
-                     ', '.join(f'{n} ({j})' for n, j in sorted(jumlah.items(), key=lambda x: -x[1])))
+            st.write('**Motif terdeteksi:** ' + ', '.join(f'{n} ({j})' for n, j in urutan))
 
             # --- penjelasan tiap motif (teks sama dengan yang dibacakan speaker) ---
             st.markdown('#### Penjelasan motif')
-            for n, j in sorted(jumlah.items(), key=lambda x: -x[1]):
+            for n, j in urutan:
                 info = INFO_UKIRAN.get(n, {})
                 judul = info.get('nama', n)
                 isi = info.get('penjelasan', 'Penjelasan belum tersedia.')
                 st.markdown(f'**{judul}** ({j} terdeteksi)\n\n> {isi}')
 
-        # --- kirim hasil ke ESP32 (speaker) ---
-        daftar_kelas = sorted({NAMA_KELAS.index(d[0]) for d in terpilih})
+        # --- kirim hasil ke ESP32 (speaker), urutannya sama dengan di web ---
+        daftar_kelas = [NAMA_KELAS.index(n) for n, _ in urutan]
         tanda = hashlib.md5(data).hexdigest() + str(daftar_kelas)
         terkirim = st.session_state.setdefault('terkirim', set())
         if kirim_otomatis and tanda not in terkirim:
