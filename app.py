@@ -3,6 +3,7 @@ import io
 import json
 import time
 from collections import Counter
+from pathlib import Path
 
 import paho.mqtt.publish as publish
 import streamlit as st
@@ -138,6 +139,17 @@ def dengarkan_tombol():
     components.html(html, height=0)
 
 
+def muat_info():
+    """Baca penjelasan tiap motif dari info_ukiran.json (satu sumber untuk web dan suara)."""
+    try:
+        with open(Path(__file__).parent / 'info_ukiran.json', encoding='utf-8') as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+
+
+INFO_UKIRAN = muat_info()
+
 st.set_page_config(page_title='Deteksi Motif Ukiran Wayang Kulit Bali', layout='wide')
 st.title('Deteksi Motif Ukiran Wayang Kulit Bali')
 st.caption('Unggah foto atau ambil gambar dari kamera untuk mendeteksi motif ukiran wayang kulit.')
@@ -223,6 +235,14 @@ def tampilkan_hasil(nama, data, min_conf, tampil):
         else:
             st.write('**Motif terdeteksi:** ' +
                      ', '.join(f'{n} ({j})' for n, j in sorted(jumlah.items(), key=lambda x: -x[1])))
+
+            # --- penjelasan tiap motif (teks sama dengan yang dibacakan speaker) ---
+            st.markdown('#### Penjelasan motif')
+            for n, j in sorted(jumlah.items(), key=lambda x: -x[1]):
+                info = INFO_UKIRAN.get(n, {})
+                judul = info.get('nama', n)
+                isi = info.get('penjelasan', 'Penjelasan belum tersedia.')
+                st.markdown(f'**{judul}** ({j} terdeteksi)\n\n> {isi}')
 
         # --- kirim hasil ke ESP32 (speaker) ---
         daftar_kelas = sorted({NAMA_KELAS.index(d[0]) for d in terpilih})
